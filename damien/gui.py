@@ -1,9 +1,12 @@
+from cProfile import label
 import tkinter as tk
 import numpy as np
 from tkinter import ttk
 from tkinter import filedialog
 from tkinter import messagebox
 from tkinter import Menu
+from pathlib import Path
+import re
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
@@ -24,7 +27,9 @@ from plot import (
     plot_9,
     plot_10,
     plot_11,
-    plot_12
+    plot_12,
+    plot_flux_tof,
+    plot_flux_energy
 )
 
 # Import correction (removal of .py)
@@ -71,7 +76,17 @@ class NeutronApp:
         menu_outils = Menu(barre_menu, tearoff=0)
         barre_menu.add_cascade(label="Tools", menu=menu_outils)
         menu_outils.add_command(label="Group Files", command=self.action_grouper_fichiers)
+
+        # 3. "Help" Dropdown Menu
+        menu_help = Menu(barre_menu, tearoff=0)
+        barre_menu.add_cascade(label="Help", menu=menu_help)
+        menu_help.add_command(label="User Guide", command=self.show_user_guide)
+        menu_help.add_command(label="Recommended Workflow",command=self.show_workflow)
+        menu_help.add_command(label="Plot Reference",command=self.show_plot_reference)
+        menu_help.add_separator()
+        menu_help.add_command(label="About",command=self.show_about)
         
+
         # ==================================================
         # DESIGN & STYLES (TABS & FONTS)
         # ==================================================
@@ -192,7 +207,7 @@ class NeutronApp:
             activeforeground=TEXT_LIGHT,
             bd=0, height=1, width=22, cursor="hand2"
         )
-        self.clear_cache_button.pack(pady=(2, 15))
+        self.clear_cache_button.pack(pady=(2, 5))
 
         # LEFT PANEL: FILE LIST
         # ==================================================
@@ -203,7 +218,7 @@ class NeutronApp:
             fg=TEXT_LIGHT,
             font=FONT_BOLD
         )
-        self.file_label.pack(pady=(10, 2))
+        self.file_label.pack(pady=(5, 2))
 
         self.file_listbox = tk.Listbox(
             self.control_frame,
@@ -223,36 +238,192 @@ class NeutronApp:
         self.ordre_selection = []
         self.file_listbox.bind('<<ListboxSelect>>', self.maj_ordre_selection)
 
-        # LEFT PANEL: PLOT SELECTION
         # ==================================================
-        self.plot_label = tk.Label(
+        # LEFT PANEL : QUICK FLUX PLOTS
+        # ==================================================
+
+        self.flux_frame = tk.LabelFrame(
             self.control_frame,
-            text="Analysis Selection",
+            text="Flux",
             bg=BG_DARK,
             fg=TEXT_LIGHT,
-            font=FONT_BOLD
+            font=FONT_BOLD,
+            padx=10,
+            pady=6
         )
-        self.plot_label.pack(pady=(15, 2))
+        
 
-        # Variable to store currently selected plot
-        self.selected_plot_id = "1"  # Default value
-        self.selected_plot_label = tk.StringVar(value="1 - Grouping Comparison")
+        self.flux_frame.pack(
+            padx=12,
+            pady=(2,1)
+        )
 
-        # Main button that will trigger menu opening
-        self.select_plot_button = tk.Button(
+        self.tof_flux_button = tk.Button(
+            self.flux_frame,
+            text="ToF Flux",
+            command=self.execute_flux_tof,
+            width=14,
+            bg="#566573",
+            fg=TEXT_LIGHT,
+            activebackground="#707b7c",
+            bd=0,
+            cursor="hand2"
+        )
+        self.tof_flux_button.pack(side=tk.LEFT, padx=6)
+
+        self.energy_flux_button = tk.Button(
+            self.flux_frame,
+            text="Energy Flux",
+            command=self.execute_flux_energy,
+            width=14,
+            bg="#566573",
+            fg=TEXT_LIGHT,
+            activebackground="#707b7c",
+            bd=0,
+            cursor="hand2"
+        )
+        self.energy_flux_button.pack(side=tk.RIGHT, padx=6)
+
+
+        # ==================================================
+        # LEFT PANEL : ANALYSIS MENU
+        # ==================================================
+
+        self.analysis_frame = tk.LabelFrame(
             self.control_frame,
+            text="Analysis",
+            bg=BG_DARK,
+            fg=TEXT_LIGHT,
+            font=FONT_BOLD,
+            padx=14,
+            pady=6
+        )
+
+        self.analysis_frame.pack(
+            padx=12,
+            pady=(1,1)
+        )
+
+        # Current selected analysis
+        self.selected_analysis_id = "1"
+
+        self.selected_plot_label = tk.StringVar()
+        self.selected_plot_label.set("Select Analysis")
+
+        self.select_plot_button = tk.Button(
+            self.analysis_frame,
             textvariable=self.selected_plot_label,
             command=self.show_analysis_menu,
-            font=("Segoe UI", 9, "bold"),
-            bg="#34495e",
-            fg="#f1c40f", # Yellow to indicate important action
-            activebackground="#5d6d7e",
-            activeforeground="#f1c40f",
-            bd=1, relief="raised", height=2, width=26, cursor="hand2"
+            width=24,
+            bg="#496682",
+            fg=TEXT_LIGHT,
+            bd=0,
+            cursor="hand2"
         )
-        self.select_plot_button.pack(pady=5)
+        self.select_plot_button.pack(side=tk.LEFT)
 
-        # Create invisible root menu in memory
+        self.ok_button = tk.Button(
+            self.analysis_frame,
+            text="OK",
+            command=self.execute_analysis_plot,
+            width=5,
+            bg="#7897b9",
+            fg=TEXT_LIGHT,
+            bd=0,
+            cursor="hand2"
+        )
+        self.ok_button.pack(side=tk.RIGHT, padx=6)
+
+
+        # ==================================================
+        # LEFT PANEL : FIT BUTTON
+        # ==================================================
+
+        self.fit_frame = tk.LabelFrame(
+            self.control_frame,
+            text="Fit",
+            bg=BG_DARK,
+            fg=TEXT_LIGHT,
+            font=FONT_BOLD,
+            padx=14,
+            pady=6
+        )
+
+        self.fit_frame.pack(
+            padx=12,
+            pady=(1,8)
+        )
+
+        # Current selected fit
+        self.selected_fit_id = "6"
+
+        self.selected_fit_label = tk.StringVar()
+        self.selected_fit_label.set("Select Fit")
+
+        self.fit_button = tk.Button(
+            self.fit_frame ,
+            textvariable=self.selected_fit_label,
+            command=self.show_fit_menu,
+            width=24,
+            bg="#496682",
+            fg=TEXT_LIGHT,
+            bd=0,
+            cursor="hand2"
+        )
+        self.fit_button.pack(side=tk.LEFT)
+
+        self.fit_ok_button = tk.Button(
+            self.fit_frame,
+            text="OK",
+            command=self.execute_fit_plot,
+            width=5,
+            bg="#7897b9",
+            fg=TEXT_LIGHT,
+            bd=0,
+            cursor="hand2"
+        )
+        self.fit_ok_button.pack(side=tk.RIGHT, padx=6)
+
+
+        # ==================================================
+        # LEFT PANEL : CLEAR
+        # ==================================================
+
+        self.clear_button = tk.Button(
+            self.control_frame,
+            text="Clear",
+            command=self.clear_plot,
+            width=30,
+            bg="#d77f5f",
+            fg=TEXT_LIGHT,
+            activebackground="#a1887f",
+            bd=0,
+            cursor="hand2"
+        )
+        self.clear_button.pack(pady=4)
+
+
+        # ==================================================
+        # LEFT PANEL : QUIT
+        # ==================================================
+
+        self.quit_button = tk.Button(
+            self.control_frame,
+            text="Quit",
+            command=self.root.destroy,
+            width=30,
+            bg="#a03737",
+            fg=TEXT_LIGHT,
+            activebackground="#8d5b5b",
+            bd=0,
+            cursor="hand2"
+        )
+        self.quit_button.pack(pady=(4,8))
+
+        # ==================================================
+        # Analysis menu
+        # ==================================================
+
         self.analysis_menu = Menu(self.root, tearoff=0)
 
         # 1st submenu: ToF Experiment
@@ -266,15 +437,9 @@ class NeutronApp:
             ("3 - Efficiency vs Energy", "3"),
             ("4 - Efficiency vs ToF", "4"),
             ("5 - Maxwellian Comparison", "5"),
-            ("6 - Least Square Maxwell Fit", "6"),
-            ("7.1 - Curve Fit Maxwell (ToF view)", "7.1"),
-            ("7.2 - Curve Fit Maxwell (ToF + Epi)", "7.2"),
-            ("8.1 - Energy Spectrum (ToF convert)", "8.1"),
-            ("8.2 - Energy Spectrum (ToF + Epi)", "8.2"),
             ("9 - Reactor Power Comparison", "9"),
             ("10 - Reactor Power vs Neutron Rate", "10"),
             ("11 - Cross Section", "11"),
-            ("12 - Cross Section ref file", "12"),
         ]
         for label, p_id in tof_options:
             self.tof_submenu.add_command(
@@ -298,10 +463,31 @@ class NeutronApp:
                 command=lambda l=label, i=p_id: self._set_current_analysis(l, i)
             )
 
+        # ==================================================
+        # Fit menu
+        # ==================================================
+
+        self.fit_menu = Menu(self.root, tearoff=0)
+
+        fit_options = [
+            ("6 - Least Square Maxwell Fit", "6"),
+            ("7.1 - Curve Fit Maxwell (ToF view)", "7.1"),
+            ("7.2 - Curve Fit Maxwell (ToF + Epi)", "7.2"),
+            ("8.1 - Energy Spectrum (ToF convert)", "8.1"),
+            ("8.2 - Energy Spectrum (ToF + Epi)", "8.2"),
+        ]
+
+        for label, p_id in fit_options:
+            self.fit_menu.add_command(
+                label=label,
+                command=lambda l=label, i=p_id: self._set_fit_plot(l, i)
+            )
+            
+
         # LEFT PANEL: COMPACT AND DISTINCT ACTIONS
         # ==================================================
         self.btn_frame = tk.Frame(self.control_frame, bg=BG_DARK)
-        self.btn_frame.pack(pady=20)
+        self.btn_frame.pack(pady=2)
         
         self.display_t_min = tk.DoubleVar(value=150)
         self.display_t_max = tk.DoubleVar(value=3700)
@@ -539,45 +725,6 @@ class NeutronApp:
             fg=TEXT_LIGHT,
             highlightthickness=0
         ).grid(row=5, column=2)
-
-        self.plot_button = tk.Button(
-            self.btn_frame,
-            text="Plot",
-            command=self.execute_plot,
-            font=FONT_BOLD,
-            bg="#2ecc71", # Bright distinct green
-            fg=TEXT_LIGHT,
-            activebackground="#27ae60",
-            bd=0, width=10, height=1, cursor="hand2"
-        )
-        self.plot_button.pack(side=tk.LEFT, padx=5)
-
-        self.clear_button = tk.Button(
-            self.btn_frame,
-            text="Clear",
-            command=self.clear_plot,
-            font=FONT_BOLD,
-            bg="#e67e22", # Bright distinct orange
-            fg=TEXT_LIGHT,
-            activebackground="#d35400",
-            bd=0, width=10, height=1, cursor="hand2"
-        )
-        self.clear_button.pack(side=tk.LEFT, padx=5)
-
-        # ==================================================
-        # LEFT PANEL: SEPARATE QUIT BUTTON
-        # ==================================================
-        self.quit_button = tk.Button(
-            self.control_frame,
-            text="Quit Application",
-            command=self.root.quit,
-            font=FONT_MAIN,
-            bg="#e74c3c", # Scarlet red
-            fg=TEXT_LIGHT,
-            activebackground="#c0392b",
-            bd=0, width=22, height=1, cursor="hand2"
-        )
-        self.quit_button.pack(side=tk.BOTTOM, pady=30)
 
         # ==================================================
         # INITIAL EMPTY PLOT (PLACEHOLDER)
@@ -850,143 +997,201 @@ class NeutronApp:
             return path if path else ""
         
 
-    def execute_plot(self):
-        numero_plot = self.selected_plot_id
-        choix = self.selected_plot_label.get()
+    # def execute_plot(self):
+    #     numero_plot = self.selected_plot_id
+    #     choix = self.selected_plot_label.get()
         
+    #     if not self.datasets:
+    #         messagebox.showwarning("Warning", "Please load data files first.")
+    #         return
+        
+    #     if not self.ordre_selection:
+    #         messagebox.showwarning("Selection Error", "Please select at least one file in the list to plot.")   
+    #         return
+
+    #     fichiers = [self.file_listbox.get(i) for i in self.ordre_selection]
+
+    #     try:
+    #         self.clear_plot()
+            
+    #         # Import du module complet pour utiliser getattr dynamiquement
+    #         import plot as pt
+    #         base_kwargs = {"frame": self.plot_frame}
+
+    #         # --- ROUTING OF NAA PHENOMENA ---
+    #         if numero_plot.startswith("NAA_"):
+    #             import plot_NAA as pt_naa
+    #             if numero_plot == "NAA_1":
+    #                 self.current_fig = pt_naa.plot_gamma_spectrum(fichiers, self.datasets, **base_kwargs)
+    #             elif numero_plot == "NAA_2":
+    #                 self.current_fig = pt_naa.plot_decay_curve(fichiers, self.datasets, **base_kwargs)
+    #             elif numero_plot == "NAA_3":
+    #                 self.current_fig = pt_naa.plot_concentration(fichiers, self.datasets, **base_kwargs)
+
+    #         # --- FAMILY 1: Standard Graphs (including Plot 6) ---
+    #         elif numero_plot in ["1", "2", "3", "4", "5", "6", "9", "10"]:
+    #             func = getattr(pt, f"plot_{numero_plot}")
+    #             self.current_fig = func(fichiers, self.datasets, **base_kwargs)
+                
+    #             # Specific extraction for Plot 6 (Grid Search Maxwell Fit)
+    #             if numero_plot == "6":
+    #                 from physics import fit_maxwellian_grid_search
+                    
+    #                 summary = "==================================================\n"
+    #                 summary += " GRID SEARCH MAXWELLIAN FIT RESULTS\n"
+    #                 summary += "==================================================\n\n"
+                    
+    #                 # On recalcule rapidement les constantes pour les afficher dans l'IHM en anglais
+    #                 for nom in fichiers:
+    #                     data = self.datasets[nom]
+    #                     mask = (data['ToF'] >= PARAMS['t_min']) & (data['ToF'] <= PARAMS['t_max'])
+    #                     ToF_fit = data['ToF'][mask]
+    #                     flux_fit = data['flux_tof'][mask]
+                        
+    #                     T_best, erreur_min = fit_maxwellian_grid_search(
+    #                         ToF_fit, flux_fit, data['meta']['path_length']
+    #                     )
+                        
+    #                     summary += f"Dataset File : {nom}\n"
+    #                     summary += f"  -> Best Fit Temperature : {T_best:.2f} K\n"
+    #                     summary += f"  -> Minimum Residual Error : {erreur_min:.2e}\n"
+    #                     summary += f"  -> Active Time Range : {PARAMS['t_min']*1e6:.1f} to {PARAMS['t_max']*1e6:.1f} µs\n\n"
+                    
+    #                 self.update_stats_display(summary)
+                
+    #         # --- FAMILY 2: Advanced Maxwell Adjustments (7.1, 7.2) ---
+    #         elif numero_plot in ["7.1", "7.2"]:
+    #             self.current_fig, self.fit_results = pt.plot_7(
+    #                 fichiers, self.datasets, choice_sub=float(numero_plot), **base_kwargs
+    #             )
+                
+    #             # Reading and formatting of fit_results dictionary returned by plot_7
+    #             if self.fit_results:
+    #                 summary = "==================================================\n"
+    #                 summary += f" ADVANCED CURVE FIT RESULTS (Plot {numero_plot})\n"
+    #                 summary += "==================================================\n\n"
+    #                 summary += f"Primary Analyzed File : {fichiers[0]}\n\n"
+    #                 summary += "Extracted Physical Constants & Parameters :\n"
+                    
+    #                 # Key mapping for clean English display
+    #                 key_mapping = {
+    #                     "T_1": "Pure Maxwellian Temperature (T1)",
+    #                     "T_1_epi": "Maxwellian + Epithermal Temperature (T1_epi)",
+    #                     "r_squared_1": "R² Coefficient (Pure Maxwellian)",
+    #                     "r_squared_2": "R² Coefficient (Grouped Maxwellian)",
+    #                     "r_squared_1_epi": "R² Coefficient (Maxwellian + Epithermal)",
+    #                     "a1_tof_pure_1": "Amplitude Factor a1 (Model 1)",
+    #                     "a1_tof_pure_2": "Amplitude Factor a1 (Model 2)",
+    #                     "Ed_epi_1": "Epithermal Cutoff Energy (Ed)",
+    #                     "b_epi_1": "Epithermal Parameter b",
+    #                     "beta_epi_1": "Epithermal Parameter beta"
+    #                 }
+                    
+    #                 for key, val in self.fit_results.items():
+    #                     # Filter numpy prediction arrays to keep only scalars
+    #                     if isinstance(val, (int, float, np.float64, np.int64)):
+    #                         label_en = key_mapping.get(key, key)
+    #                         summary += f"  -> {label_en} : {val:.4f}\n"
+                            
+    #                 self.update_stats_display(summary)
+                
+    #         # --- FAMILY 3: Energy Spectra (8.1, 8.2) ---
+    #         elif numero_plot in ["8.1", "8.2"]:
+    #             if self.fit_results is None:
+    #                 messagebox.showwarning("Warning", "Please execute plot 7 first to compute fit results.")
+    #                 return
+                
+    #             self.current_fig = pt.plot_8(
+    #                 fichiers, self.datasets, self.fit_results, choice_sub=float(numero_plot), **base_kwargs
+    #             )
+                
+    #             # Optional: Display text reminder that statistics from this plot stem from fit 7
+    #             summary = "==================================================\n"
+    #             summary += f" ENERGY SPECTRUM MODELING (Plot {numero_plot})\n"
+    #             summary += "==================================================\n\n"
+    #             summary += f"Based on prior fit parameters from: {fichiers[0]}\n"
+    #             summary += "Plots display converted Time-of-Flight configurations into Energy scale (eV).\n"
+    #             summary += "Review 'Fit Results & Stats' tab parameters for exact scaling coefficients."
+    #             self.update_stats_display(summary)
+                
+    #         # Family 4: Cross Sections (11, 12) - Requires physical parameters and references
+    #         elif numero_plot in ["11", "12"]:
+    #             fichier_ref = self._ask_reference_files(multiple=(numero_plot == "11"))
+    #             func = getattr(pt, f"plot_{numero_plot}")
+    #             self.current_fig = func(
+    #                 fichiers, self.datasets,  
+    #                 fichier_ref=fichier_ref, 
+    #                 **base_kwargs
+    #             )
+
+    #         self._process_plot_statistics(numero_plot, fichiers, choix)
+    #         self.update_live_zoom()
+    #         self._reconfigure_y_sliders() # Call to external function
+            
+    #         # Capture current text stats content and save everything as a clean snapshot
+    #         current_stats = self.txt_stats.get("1.0", tk.END).strip()
+    #         self.add_to_history(choix, fichiers, figure_obj=self.current_fig, stats_text=current_stats)
+
+    #     except Exception as e:
+    #         messagebox.showerror("Plot Error", str(e))
+
+    def execute_flux_tof(self):
+        """Plot the corrected neutron flux in the Time-of-Flight domain."""
+
         if not self.datasets:
             messagebox.showwarning("Warning", "Please load data files first.")
             return
-        
+
         if not self.ordre_selection:
-            messagebox.showwarning("Selection Error", "Please select at least one file in the list to plot.")   
+            messagebox.showwarning(
+                "Selection Error",
+                "Please select at least one file."
+            )
             return
 
         fichiers = [self.file_listbox.get(i) for i in self.ordre_selection]
 
-        try:
-            self.clear_plot()
-            
-            # Import du module complet pour utiliser getattr dynamiquement
-            import plot as pt
-            base_kwargs = {"frame": self.plot_frame}
+        self.clear_plot()
 
-            # --- ROUTING OF NAA PHENOMENA ---
-            if numero_plot.startswith("NAA_"):
-                import plot_NAA as pt_naa
-                if numero_plot == "NAA_1":
-                    self.current_fig = pt_naa.plot_gamma_spectrum(fichiers, self.datasets, **base_kwargs)
-                elif numero_plot == "NAA_2":
-                    self.current_fig = pt_naa.plot_decay_curve(fichiers, self.datasets, **base_kwargs)
-                elif numero_plot == "NAA_3":
-                    self.current_fig = pt_naa.plot_concentration(fichiers, self.datasets, **base_kwargs)
+        import plot as pt
 
-            # --- FAMILY 1: Standard Graphs (including Plot 6) ---
-            elif numero_plot in ["1", "2", "3", "4", "5", "6", "9", "10"]:
-                func = getattr(pt, f"plot_{numero_plot}")
-                self.current_fig = func(fichiers, self.datasets, **base_kwargs)
-                
-                # Specific extraction for Plot 6 (Grid Search Maxwell Fit)
-                if numero_plot == "6":
-                    from physics import fit_maxwellian_grid_search
-                    
-                    summary = "==================================================\n"
-                    summary += " GRID SEARCH MAXWELLIAN FIT RESULTS\n"
-                    summary += "==================================================\n\n"
-                    
-                    # On recalcule rapidement les constantes pour les afficher dans l'IHM en anglais
-                    for nom in fichiers:
-                        data = self.datasets[nom]
-                        mask = (data['ToF'] >= PARAMS['t_min']) & (data['ToF'] <= PARAMS['t_max'])
-                        ToF_fit = data['ToF'][mask]
-                        flux_fit = data['flux_tof'][mask]
-                        
-                        T_best, erreur_min = fit_maxwellian_grid_search(
-                            ToF_fit, flux_fit, data['meta']['path_length']
-                        )
-                        
-                        summary += f"Dataset File : {nom}\n"
-                        summary += f"  -> Best Fit Temperature : {T_best:.2f} K\n"
-                        summary += f"  -> Minimum Residual Error : {erreur_min:.2e}\n"
-                        summary += f"  -> Active Time Range : {PARAMS['t_min']*1e6:.1f} to {PARAMS['t_max']*1e6:.1f} µs\n\n"
-                    
-                    self.update_stats_display(summary)
-                
-            # --- FAMILY 2: Advanced Maxwell Adjustments (7.1, 7.2) ---
-            elif numero_plot in ["7.1", "7.2"]:
-                self.current_fig, self.fit_results = pt.plot_7(
-                    fichiers, self.datasets, choice_sub=float(numero_plot), **base_kwargs
-                )
-                
-                # Reading and formatting of fit_results dictionary returned by plot_7
-                if self.fit_results:
-                    summary = "==================================================\n"
-                    summary += f" ADVANCED CURVE FIT RESULTS (Plot {numero_plot})\n"
-                    summary += "==================================================\n\n"
-                    summary += f"Primary Analyzed File : {fichiers[0]}\n\n"
-                    summary += "Extracted Physical Constants & Parameters :\n"
-                    
-                    # Key mapping for clean English display
-                    key_mapping = {
-                        "T_1": "Pure Maxwellian Temperature (T1)",
-                        "T_1_epi": "Maxwellian + Epithermal Temperature (T1_epi)",
-                        "r_squared_1": "R² Coefficient (Pure Maxwellian)",
-                        "r_squared_2": "R² Coefficient (Grouped Maxwellian)",
-                        "r_squared_1_epi": "R² Coefficient (Maxwellian + Epithermal)",
-                        "a1_tof_pure_1": "Amplitude Factor a1 (Model 1)",
-                        "a1_tof_pure_2": "Amplitude Factor a1 (Model 2)",
-                        "Ed_epi_1": "Epithermal Cutoff Energy (Ed)",
-                        "b_epi_1": "Epithermal Parameter b",
-                        "beta_epi_1": "Epithermal Parameter beta"
-                    }
-                    
-                    for key, val in self.fit_results.items():
-                        # Filter numpy prediction arrays to keep only scalars
-                        if isinstance(val, (int, float, np.float64, np.int64)):
-                            label_en = key_mapping.get(key, key)
-                            summary += f"  -> {label_en} : {val:.4f}\n"
-                            
-                    self.update_stats_display(summary)
-                
-            # --- FAMILY 3: Energy Spectra (8.1, 8.2) ---
-            elif numero_plot in ["8.1", "8.2"]:
-                if self.fit_results is None:
-                    messagebox.showwarning("Warning", "Please execute plot 7 first to compute fit results.")
-                    return
-                
-                self.current_fig = pt.plot_8(
-                    fichiers, self.datasets, self.fit_results, choice_sub=float(numero_plot), **base_kwargs
-                )
-                
-                # Optional: Display text reminder that statistics from this plot stem from fit 7
-                summary = "==================================================\n"
-                summary += f" ENERGY SPECTRUM MODELING (Plot {numero_plot})\n"
-                summary += "==================================================\n\n"
-                summary += f"Based on prior fit parameters from: {fichiers[0]}\n"
-                summary += "Plots display converted Time-of-Flight configurations into Energy scale (eV).\n"
-                summary += "Review 'Fit Results & Stats' tab parameters for exact scaling coefficients."
-                self.update_stats_display(summary)
-                
-            # Family 4: Cross Sections (11, 12) - Requires physical parameters and references
-            elif numero_plot in ["11", "12"]:
-                fichier_ref = self._ask_reference_files(multiple=(numero_plot == "11"))
-                func = getattr(pt, f"plot_{numero_plot}")
-                self.current_fig = func(
-                    fichiers, self.datasets,  
-                    fichier_ref=fichier_ref, 
-                    **base_kwargs
-                )
+        self.current_fig = pt.plot_flux_tof(
+            fichiers,
+            self.datasets,
+            frame=self.plot_frame
+        )
 
-            self._process_plot_statistics(numero_plot, fichiers, choix)
-            self.update_live_zoom()
-            self._reconfigure_y_sliders() # Call to external function
-            
-            # Capture current text stats content and save everything as a clean snapshot
-            current_stats = self.txt_stats.get("1.0", tk.END).strip()
-            self.add_to_history(choix, fichiers, figure_obj=self.current_fig, stats_text=current_stats)
+        self.update_live_zoom()
+        self._reconfigure_y_sliders()
 
-        except Exception as e:
-            messagebox.showerror("Plot Error", str(e))
+    def execute_flux_energy(self):
+        """Plot the corrected neutron flux in the Energy domain."""
+
+        if not self.datasets:
+            messagebox.showwarning("Warning", "Please load data files first.")
+            return
+
+        if not self.ordre_selection:
+            messagebox.showwarning(
+                "Selection Error",
+                "Please select at least one file."
+            )
+            return
+
+        fichiers = [self.file_listbox.get(i) for i in self.ordre_selection]
+
+        self.clear_plot()
+
+        import plot as pt
+
+        self.current_fig = pt.plot_flux_energy(
+            fichiers,
+            self.datasets,
+            frame=self.plot_frame
+        )
+
+        self.update_live_zoom()
+        self._reconfigure_y_sliders()
 
     
     def _reconfigure_y_sliders(self):
@@ -1209,17 +1414,33 @@ class NeutronApp:
         self.apply_y_limits = False
 
     def show_analysis_menu(self):
-        """Displays the cascade menu just below the button on click."""
-        # Retrieves physical coordinates of button on screen
+
         x = self.select_plot_button.winfo_rootx()
         y = self.select_plot_button.winfo_rooty() + self.select_plot_button.winfo_height()
-        
-        # Displays menu contextually
+
         self.analysis_menu.post(x, y)
 
-    def _set_current_analysis(self, label, plot_id):
+    def _set_analysis_plot(self, label, analysis_id):
+
+        self.selected_analysis_id = analysis_id
+        self.selected_plot_label.set(label)
+
+    def show_fit_menu(self):
+
+        x = self.fit_button.winfo_rootx()
+        y = self.fit_button.winfo_rooty() + self.fit_button.winfo_height()
+
+        self.fit_menu.post(x, y)
+
+
+    def _set_fit_plot(self, label, fit_id):
+
+        self.selected_fit_id = fit_id
+        self.selected_fit_label.set(label)
+
+    def _set_current_analysis(self, label, analysis_id):
         """Updates selection variables and modifies button text."""
-        self.selected_plot_id = plot_id
+        self.selected_analysis_id = analysis_id
         self.selected_plot_label.set(label)
 
         
@@ -1493,3 +1714,571 @@ class NeutronApp:
         self.root.clipboard_clear()
         self.root.clipboard_append(self.txt_stats.get("1.0", tk.END).strip())
         messagebox.showinfo("Success", "Results successfully copied to clipboard.")
+
+    def _prepare_plot_execution(self):
+        """
+        Perform common checks and initialize plot execution.
+        Returns (fichiers, base_kwargs) or None if execution must stop.
+        """
+
+        if not self.datasets:
+            messagebox.showwarning(
+                "Warning",
+                "Please load data files first."
+            )
+            return None
+
+        if not self.ordre_selection:
+            messagebox.showwarning(
+                "Selection Error",
+                "Please select at least one file in the list to plot."
+            )
+            return None
+
+        fichiers = [
+            self.file_listbox.get(i)
+            for i in self.ordre_selection
+        ]
+
+        self.clear_plot()
+
+        base_kwargs = {
+            "frame": self.plot_frame
+        }
+
+        return fichiers, base_kwargs
+
+    def _finalize_plot_execution(self, numero_plot, fichiers, choix):
+        """
+        Common operations after a successful plot.
+        """
+
+        self._process_plot_statistics(
+            numero_plot,
+            fichiers,
+            choix
+        )
+
+        self.update_live_zoom()
+
+        self._reconfigure_y_sliders()
+
+        current_stats = self.txt_stats.get(
+            "1.0",
+            tk.END
+        ).strip()
+
+        self.add_to_history(
+            choix,
+            fichiers,
+            figure_obj=self.current_fig,
+            stats_text=current_stats
+        )
+
+
+
+    def execute_analysis_plot(self):
+
+        numero_plot = self.selected_analysis_id
+        choix = self.selected_plot_label.get()
+
+        prepared = self._prepare_plot_execution()
+
+        if prepared is None:
+            return
+
+        fichiers, base_kwargs = prepared
+
+        import plot as pt
+
+        try:
+
+            self.clear_plot()
+            
+            # ==========================================================
+            # NAA ANALYSIS
+            # ==========================================================
+
+            if numero_plot.startswith("NAA_"):
+
+                import plot_NAA as pt_naa
+
+                if numero_plot == "NAA_1":
+                    self.current_fig = pt_naa.plot_gamma_spectrum(
+                        fichiers,
+                        self.datasets,
+                        **base_kwargs
+                    )
+
+                elif numero_plot == "NAA_2":
+                    self.current_fig = pt_naa.plot_decay_curve(
+                        fichiers,
+                        self.datasets,
+                        **base_kwargs
+                    )
+
+                elif numero_plot == "NAA_3":
+                    self.current_fig = pt_naa.plot_concentration(
+                        fichiers,
+                        self.datasets,
+                        **base_kwargs
+                    )
+
+            # ==========================================================
+            # STANDARD PLOTS
+            # ==========================================================
+
+            elif numero_plot in ["1", "2", "3", "4", "5", "9", "10"]:
+
+                func = getattr(pt, f"plot_{numero_plot}")
+
+                self.current_fig = func(
+                    fichiers,
+                    self.datasets,
+                    **base_kwargs
+                )
+
+            # ==========================================================
+            # CROSS SECTIONS
+            # ==========================================================
+
+            elif numero_plot in ["11"]:
+
+                fichier_ref = self._ask_reference_files(
+                    multiple=(numero_plot == "11")
+                )
+
+                func = getattr(pt, f"plot_{numero_plot}")
+
+                self.current_fig = func(
+                    fichiers,
+                    self.datasets,
+                    fichier_ref=fichier_ref,
+                    **base_kwargs
+                )
+
+            # ==========================================================
+            # COMMON POST-PROCESSING
+            # ==========================================================
+
+            self._finalize_plot_execution(
+                numero_plot,
+                fichiers,
+                choix
+            )
+
+        except Exception as e:
+            messagebox.showerror(
+                "Plot Error",
+                str(e)
+            )
+
+    def execute_fit_plot(self):
+
+        numero_plot = self.selected_fit_id
+        choix = self.fit_button.cget("text")
+
+        prepared = self._prepare_plot_execution()
+
+        if prepared is None:
+            return
+
+        fichiers, base_kwargs = prepared
+
+        import plot as pt
+
+        try:
+
+            self.clear_plot()
+
+            # ==========================================================
+            # PLOT 6 : GRID SEARCH MAXWELL FIT
+            # ==========================================================
+
+            if numero_plot == "6":
+
+                self.current_fig = pt.plot_6(
+                    fichiers,
+                    self.datasets,
+                    **base_kwargs
+                )
+
+                from physics import fit_maxwellian_grid_search
+
+                summary = "==================================================\n"
+                summary += " GRID SEARCH MAXWELLIAN FIT RESULTS\n"
+                summary += "==================================================\n\n"
+
+                for nom in fichiers:
+
+                    data = self.datasets[nom]
+
+                    mask = (
+                        (data["ToF"] >= PARAMS["t_min"])
+                        &
+                        (data["ToF"] <= PARAMS["t_max"])
+                    )
+
+                    ToF_fit = data["ToF"][mask]
+                    flux_fit = data["flux_tof"][mask]
+
+                    T_best, erreur_min = fit_maxwellian_grid_search(
+                        ToF_fit,
+                        flux_fit,
+                        data["meta"]["path_length"]
+                    )
+
+                    summary += f"Dataset File : {nom}\n"
+                    summary += f"  -> Best Fit Temperature : {T_best:.2f} K\n"
+                    summary += f"  -> Minimum Residual Error : {erreur_min:.2e}\n"
+                    summary += (
+                        f"  -> Active Time Range : "
+                        f"{PARAMS['t_min']*1e6:.1f} "
+                        f"to "
+                        f"{PARAMS['t_max']*1e6:.1f} µs\n\n"
+                    )
+
+                self.update_stats_display(summary)
+
+            # ==========================================================
+            # PLOT 7
+            # ==========================================================
+
+            elif numero_plot in ["7.1", "7.2"]:
+
+                self.current_fig, self.fit_results = pt.plot_7(
+                    fichiers,
+                    self.datasets,
+                    choice_sub=float(numero_plot),
+                    **base_kwargs
+                )
+
+                if self.fit_results:
+
+                    summary = "==================================================\n"
+                    summary += f" ADVANCED CURVE FIT RESULTS (Plot {numero_plot})\n"
+                    summary += "==================================================\n\n"
+
+                    summary += f"Primary Analyzed File : {fichiers[0]}\n\n"
+
+                    summary += (
+                        "Extracted Physical Constants & Parameters :\n"
+                    )
+
+                    key_mapping = {
+
+                        "T_1":
+                            "Pure Maxwellian Temperature (T1)",
+
+                        "T_1_epi":
+                            "Maxwellian + Epithermal Temperature (T1_epi)",
+
+                        "r_squared_1":
+                            "R² Coefficient (Pure Maxwellian)",
+
+                        "r_squared_2":
+                            "R² Coefficient (Grouped Maxwellian)",
+
+                        "r_squared_1_epi":
+                            "R² Coefficient (Maxwellian + Epithermal)",
+
+                        "a1_tof_pure_1":
+                            "Amplitude Factor a1 (Model 1)",
+
+                        "a1_tof_pure_2":
+                            "Amplitude Factor a1 (Model 2)",
+
+                        "Ed_epi_1":
+                            "Epithermal Cutoff Energy (Ed)",
+
+                        "b_epi_1":
+                            "Epithermal Parameter b",
+
+                        "beta_epi_1":
+                            "Epithermal Parameter beta"
+
+                    }
+
+                    for key, val in self.fit_results.items():
+
+                        if isinstance(
+                            val,
+                            (int, float, np.float64, np.int64)
+                        ):
+
+                            label_en = key_mapping.get(key, key)
+
+                            summary += (
+                                f"  -> {label_en} : {val:.4f}\n"
+                            )
+
+                    self.update_stats_display(summary)
+
+            # ==========================================================
+            # PLOT 8
+            # ==========================================================
+
+            elif numero_plot in ["8.1", "8.2"]:
+
+                if self.fit_results is None:
+
+                    messagebox.showwarning(
+                        "Warning",
+                        "Please execute Plot 7 before Plot 8."
+                    )
+                    return
+
+                self.current_fig = pt.plot_8(
+                    fichiers,
+                    self.datasets,
+                    self.fit_results,
+                    choice_sub=float(numero_plot),
+                    **base_kwargs
+                )
+
+                summary = "==================================================\n"
+                summary += (
+                    f" ENERGY SPECTRUM MODELING (Plot {numero_plot})\n"
+                )
+                summary += "==================================================\n\n"
+
+                summary += (
+                    f"Based on prior fit parameters from : "
+                    f"{fichiers[0]}\n\n"
+                )
+
+                summary += (
+                    "Plots display converted Time-of-Flight "
+                    "configurations into Energy scale (eV).\n"
+                )
+
+                summary += (
+                    "Review 'Fit Results & Stats' tab "
+                    "parameters for exact scaling coefficients."
+                )
+
+                self.update_stats_display(summary)
+
+            # ==========================================================
+            # COMMON POST PROCESSING
+            # ==========================================================
+
+            self._finalize_plot_execution(
+                numero_plot,
+                fichiers,
+                choix
+            )
+
+        except Exception as e:
+
+            messagebox.showerror(
+                "Plot Error",
+                str(e)
+            )
+
+    
+    def _show_markdown_file(self, title, filename):
+        """
+        Display a Markdown help file in a read-only window.
+        """
+
+        filepath = Path(__file__).parent / "user_guide" / filename
+
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                text = f.read()
+
+        except FileNotFoundError:
+            messagebox.showerror(
+                "Documentation Error",
+                f"Unable to find:\n{filepath}"
+            )
+            return
+
+        # ==========================
+        # Window
+        # ==========================
+
+        window = tk.Toplevel(self.root)
+        window.title(title)
+        window.geometry("900x700")
+
+        txt = tk.Text(
+            window,
+            wrap="word",
+            font=("Segoe UI", 10)
+        )
+
+        scrollbar = tk.Scrollbar(
+            window,
+            command=txt.yview
+        )
+
+        txt.configure(yscrollcommand=scrollbar.set)
+
+        scrollbar.pack(side="right", fill="y")
+        txt.pack(fill="both", expand=True)
+
+        # ==========================
+        # Styles
+        # ==========================
+
+        txt.tag_configure(
+            "h1",
+            font=("Segoe UI", 18, "bold"),
+            spacing1=15,
+            spacing3=10
+        )
+
+        txt.tag_configure(
+            "h2",
+            font=("Segoe UI", 14, "bold"),
+            spacing1=12,
+            spacing3=8
+        )
+
+        txt.tag_configure(
+            "h3",
+            font=("Segoe UI", 12, "bold"),
+            spacing1=8,
+            spacing3=5
+        )
+
+        txt.tag_configure(
+            "bold",
+            font=("Segoe UI", 10, "bold")
+        )
+
+        txt.tag_configure(
+            "italic",
+            font=("Segoe UI", 10, "italic")
+        )
+
+        txt.tag_configure(
+            "code",
+            font=("Consolas", 10),
+            background="#f3f3f3"
+        )
+
+        txt.tag_configure(
+            "bullet",
+            lmargin1=25,
+            lmargin2=45
+        )
+
+        txt.tag_configure(
+            "link",
+            foreground="blue",
+            underline=True
+        )
+
+        # ==========================
+        # Markdown parser
+        # ==========================
+
+        pattern = r"(\*\*.*?\*\*|\*.*?\*|`.*?`|\[.*?\]\(.*?\))"
+
+        for line in text.splitlines():
+
+            # ---------- Headers ----------
+
+            if line.startswith("# "):
+                txt.insert("end", line[2:] + "\n", "h1")
+                continue
+
+            elif line.startswith("## "):
+                txt.insert("end", line[3:] + "\n", "h2")
+                continue
+
+            elif line.startswith("### "):
+                txt.insert("end", line[4:] + "\n", "h3")
+                continue
+
+            # ---------- Horizontal rule ----------
+
+            elif line.strip() == "---":
+                txt.insert(
+                    "end",
+                    "────────────────────────────────────────────────────────────\n"
+                )
+                continue
+
+            # ---------- Bullet list ----------
+
+            elif line.startswith("- "):
+                line = "• " + line[2:]
+
+            # ---------- Numbered list ----------
+
+            m = re.match(r"^(\d+)\.\s+(.*)", line)
+            if m:
+                line = f"{m.group(1)}. {m.group(2)}"
+
+            # ---------- Inline formatting ----------
+
+            pos = 0
+
+            for match in re.finditer(pattern, line):
+
+                start, end = match.span()
+
+                txt.insert("end", line[pos:start])
+
+                token = match.group()
+
+                # Bold
+
+                if token.startswith("**"):
+                    txt.insert(
+                        "end",
+                        token[2:-2],
+                        "bold"
+                    )
+
+                # Italic
+
+                elif token.startswith("*"):
+                    txt.insert(
+                        "end",
+                        token[1:-1],
+                        "italic"
+                    )
+
+                # Code
+
+                elif token.startswith("`"):
+                    txt.insert(
+                        "end",
+                        token[1:-1],
+                        "code"
+                    )
+
+                # Markdown link
+
+                elif token.startswith("["):
+
+                    label = re.search(r"\[(.*?)\]", token).group(1)
+
+                    txt.insert(
+                        "end",
+                        label,
+                        "link"
+                    )
+
+                pos = end
+
+            txt.insert("end", line[pos:] + "\n")
+
+        txt.config(state="disabled")
+
+    def show_user_guide(self):
+        self._show_markdown_file("User Guide", "user_guide.md")
+        
+    def show_workflow(self):
+        self._show_markdown_file("Workflow", "work_flow.md")
+
+    def show_plot_reference(self):
+        self._show_markdown_file("Plot Reference", "plot_reference.md")
+
+    def show_about(self):
+        self._show_markdown_file("About", "about.md")
