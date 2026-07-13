@@ -252,7 +252,7 @@ class NeutronApp:
             command=self.execute_flux_tof,
             width=14,
             bg="#566573",
-            fg="white",
+            fg=TEXT_LIGHT,
             activebackground="#707b7c",
             bd=0,
             cursor="hand2"
@@ -265,7 +265,7 @@ class NeutronApp:
             command=self.execute_flux_energy,
             width=14,
             bg="#566573",
-            fg="white",
+            fg=TEXT_LIGHT,
             activebackground="#707b7c",
             bd=0,
             cursor="hand2"
@@ -303,8 +303,8 @@ class NeutronApp:
             textvariable=self.selected_plot_label,
             command=self.show_analysis_menu,
             width=24,
-            bg="#34495e",
-            fg="white",
+            bg="#496682",
+            fg=TEXT_LIGHT,
             bd=0,
             cursor="hand2"
         )
@@ -315,8 +315,8 @@ class NeutronApp:
             text="OK",
             command=self.execute_analysis_plot,
             width=5,
-            bg="#5d6d7e",
-            fg="white",
+            bg="#7897b9",
+            fg=TEXT_LIGHT,
             bd=0,
             cursor="hand2"
         )
@@ -353,8 +353,8 @@ class NeutronApp:
             textvariable=self.selected_fit_label,
             command=self.show_fit_menu,
             width=24,
-            bg="#34495e",
-            fg="white",
+            bg="#496682",
+            fg=TEXT_LIGHT,
             bd=0,
             cursor="hand2"
         )
@@ -365,8 +365,8 @@ class NeutronApp:
             text="OK",
             command=self.execute_fit_plot,
             width=5,
-            bg="#5d6d7e",
-            fg="white",
+            bg="#7897b9",
+            fg=TEXT_LIGHT,
             bd=0,
             cursor="hand2"
         )
@@ -381,9 +381,9 @@ class NeutronApp:
             self.control_frame,
             text="Clear",
             command=self.clear_plot,
-            width=30,
-            bg="#8d6e63",
-            fg="white",
+            width=36,
+            bg="#d77f5f",
+            fg=TEXT_LIGHT,
             activebackground="#a1887f",
             bd=0,
             cursor="hand2"
@@ -399,9 +399,9 @@ class NeutronApp:
             self.control_frame,
             text="Quit",
             command=self.root.destroy,
-            width=30,
-            bg="#7b4b4b",
-            fg="white",
+            width=36,
+            bg="#a03737",
+            fg=TEXT_LIGHT,
             activebackground="#8d5b5b",
             bd=0,
             cursor="hand2"
